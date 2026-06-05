@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Рабочий трекер</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; color: white; font-family: -apple-system, sans-serif; padding: 16px; min-height: 100vh; }
+.header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; background: #5B6EF5; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.title { font-size: 18px; font-weight: 600; }
+.subtitle { font-size: 12px; color: rgba(255,255,255,0.5); }
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab { flex: 1; padding: 12px; border: none; border-radius: 14px; font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+.tab.active { background: #5B6EF5; color: white; }
+.tab.inactive { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); }
+.section { display: none; }
+.section.active { display: block; }
+.bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.count { font-size: 13px; color: rgba(255,255,255,0.5); }
+.add-btn { background: #5B6EF5; border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 500; padding: 8px 16px; cursor: pointer; }
+.card { background: rgba(255,255,255,0.06); border-radius: 14px; padding: 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; }
+.checkbox { width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid rgba(255,255,255,0.25); cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.checkbox.done { background: #5B6EF5; border-color: #5B6EF5; }
+.task-text { font-size: 15px; color: white; }
+.task-text.done { color: rgba(255,255,255,0.35); text-decoration: line-through; }
+.task-meta { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 2px; }
+.expense-card { background: rgba(255,255,255,0.06); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+.expense-amount { color: #5B6EF5; font-size: 16px; font-weight: 600; }
+.total-bar { background: rgba(91,110,245,0.15); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+.total-label { font-size: 14px; color: rgba(255,255,255,0.6); }
+.total-amount { font-size: 20px; font-weight: 600; color: #5B6EF5; }
+.overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: flex-end; }
+.overlay.open { display: flex; }
+.sheet { background: #16213e; border-radius: 20px 20px 0 0; padding: 20px; width: 100%; }
+.sheet-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.sheet-input { width: 100%; background: rgba(255,255,255,0.08); border: none; border-radius: 12px; color: white; font-size: 15px; padding: 14px; margin-bottom: 12px; outline: none; }
+.sheet-btn { width: 100%; border: none; border-radius: 14px; color: white; font-size: 16px; font-weight: 600; padding: 14px; cursor: pointer; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="avatar">⚡</div>
+  <div>
+    <div class="title">Рабочий трекер</div>
+    <div class="subtitle">Общие задачи и расходы</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="showTab('tasks')">✅ Задачи</button>
+  <button class="tab inactive" onclick="showTab('expenses')">💰 Расходы</button>
+</div>
+
+<div id="tasks" class="section active">
+  <div class="bar">
+    <span class="count" id="task-count"></span>
+    <button class="add-btn" onclick="openSheet('task')">+ Добавить</button>
+  </div>
+  <div id="task-list"></div>
+</div>
+
+<div id="expenses" class="section">
+  <div class="total-bar">
+    <span class="total-label">Итого</span>
+    <span class="total-amount" id="total">0 ₽</span>
+  </div>
+  <div class="bar">
+    <span class="count" id="expense-count"></span>
+    <button class="add-btn" onclick="openSheet('expense')">+ Добавить</button>
+  </div>
+  <div id="expense-list"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet">
+    <div class="sheet-title" id="sheet-title">Новая задача</div>
+    <input class="sheet-input" id="input1" placeholder="Название">
+    <input class="sheet-input" id="input2" placeholder="Сумма в рублях" style="display:none">
+    <button class="sheet-btn" onclick="saveItem()" style="background:#5B6EF5">Сохранить</button>
+    <button class="sheet-btn" onclick="closeSheet()" style="background:rgba(255,255,255,0.08)">Отмена</button>
+  </div>
+</div>
+
+<script>
+var mode = 'task';
+var data = JSON.parse(localStorage.getItem('tracker') || '{"tasks":[],"expenses":[]}');
+
+function save() { localStorage.setItem('tracker', JSON.stringify(data)); }
+
+function getUser() {
+  try { return Telegram.WebApp.initDataUnsafe.user.first_name; } catch(e) { return 'Ты'; }
+}
+
+function now() {
+  var d = new Date();
+  return d.getDate() + '.' + (d.getMonth()+1) + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function showTab(tab) {
+  document.querySelectorAll('.tab').forEach(function(t, i) {
+    t.className = 'tab ' + ((tab==='tasks'&&i===0)||(tab==='expenses'&&i===1) ? 'active' : 'inactive');
+  });
+  document.getElementById('tasks').className = 'section' + (tab==='tasks' ? ' active' : '');
+  document.getElementById('expenses').className = 'section' + (tab==='expenses' ? ' active' : '');
+  render();
+}
+
+function render() {
+  var tl = document.getElementById('task-list');
+  tl.innerHTML = '';
+  data.tasks.forEach(function(t, i) {
+    tl.innerHTML += '<div class="card"><div class="checkbox ' + (t.done?'done':'') + '" onclick="toggle(' + i + ')">' + (t.done ? '✓' : '') + '</div><div><div class="task-text ' + (t.done?'done':'') + '">' + t.text + '</div><div class="task-meta">' + t.author + ' · ' + t.date + '</div></div></div>';
+  });
+  var done = data.tasks.filter(function(t){return t.done;}).length;
+  document.getElementById('task-count').textContent = data.tasks.length + ' задач · ' + done + ' выполнено';
+
+  var el = document.getElementById('expense-list');
+  el.innerHTML = '';
+  var total = 0;
+  data.expenses.forEach(function(e, i) {
+    total += e.amount;
+    el.innerHTML += '<div class="expense-card"><div><div style="font-size:15px">' + e.desc + '</div><div class="task-meta">' + e.author + ' · ' + e.date + '</div></div><div style="display:flex;align-items:center;gap:10px"><span class="expense-amount">' + e.amount.toLocaleString() + ' ₽</span><span onclick="delExp(' + i + ')" style="color:rgba(255,255,255,0.3);cursor:pointer;font-size:20px;line-height:1">×</span></div></div>';
+  });
+  document.getElementById('expense-count').textContent = data.expenses.length + ' расходов';
+  document.getElementById('total').textContent = total.toLocaleString() + ' ₽';
+}
+
+function toggle(i) {
+  data.tasks[i].done = !data.tasks[i].done;
+  save(); render();
+}
+
+function delExp(i) {
+  if (confirm('Удалить расход?')) { data.expenses.splice(i, 1); save(); render(); }
+}
+
+function openSheet(m) {
+  mode = m;
+  document.getElementById('sheet-title').textContent = m === 'task' ? 'Новая задача' : 'Новый расход';
+  document.getElementById('input1').placeholder = m === 'task' ? 'Название задачи' : 'Название расхода';
+  document.getElementById('input2').style.display = m === 'expense' ? 'block' : 'none';
+  document.getElementById('input1').value = '';
+  document.getElementById('input2').value = '';
+  document.getElementById('overlay').className = 'overlay open';
+  setTimeout(function(){ document.getElementById('input1').focus(); }, 100);
+}
+
+function closeSheet() { document.getElementById('overlay').className = 'overlay'; }
+
+function saveItem() {
+  var name = document.getElementById('input1').value.trim();
+  if (!name) return;
+  if (mode === 'task') {
+    data.tasks.push({text: name, done: false, author: getUser(), date: now()});
+  } else {
+    var amount = parseFloat(document.getElementById('input2').value.replace(',','.'));
+    if (!amount) { alert('Введи сумму'); return; }
+    data.expenses.push({desc: name, amount: amount, author: getUser(), date: now()});
+  }
+  save(); render(); closeSheet();
+}
+
+try { Telegram.WebApp.expand(); Telegram.WebApp.setHeaderColor('#1a1a2e'); } catch(e) {}
+
+render();
+</script>
+</body>
+</html>
